@@ -31,9 +31,15 @@ load_dotenv(override=True)
 if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
+# 当前工作的目录
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+#client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
+MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
+client = Anthropic(
+    base_url="https://api.minimaxi.com/anthropic",
+    api_key=MINIMAX_API_KEY
+)
+#MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
 
@@ -46,6 +52,7 @@ def safe_path(p: str) -> Path:
 
 
 def run_bash(command: str) -> str:
+    print(f"run_bash: command:{command}")
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
     if any(d in command for d in dangerous):
         return "Error: Dangerous command blocked"
@@ -59,6 +66,7 @@ def run_bash(command: str) -> str:
 
 
 def run_read(path: str, limit: int = None) -> str:
+    print(f"run_write: path:{path}, limit:{limit}")
     try:
         text = safe_path(path).read_text()
         lines = text.splitlines()
@@ -70,6 +78,7 @@ def run_read(path: str, limit: int = None) -> str:
 
 
 def run_write(path: str, content: str) -> str:
+    print(f"run_write: path:{path}, content:{content}")
     try:
         fp = safe_path(path)
         fp.parent.mkdir(parents=True, exist_ok=True)
@@ -80,6 +89,7 @@ def run_write(path: str, content: str) -> str:
 
 
 def run_edit(path: str, old_text: str, new_text: str) -> str:
+    print(f"run_edit: path:{path}, old_text:{old_text}, new_text:{new_text}")
     try:
         fp = safe_path(path)
         content = fp.read_text()
@@ -113,16 +123,27 @@ TOOLS = [
 
 def agent_loop(messages: list):
     while True:
+        print(f"message: {messages}")
+        '''
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
+        '''
+        response = client.messages.create(
+            model="MiniMax-M2.7",
+            max_tokens=1000,
+            messages=messages,
+            tools=TOOLS,
+        )
+        print(f"response: {response}");
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             return
         results = []
         for block in response.content:
             if block.type == "tool_use":
+                # 通过 TOOL_HANDLERS 来匹配工具
                 handler = TOOL_HANDLERS.get(block.name)
                 output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 print(f"> {block.name}:")

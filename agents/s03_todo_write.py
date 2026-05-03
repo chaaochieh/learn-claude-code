@@ -40,8 +40,15 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
+'''
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
+'''
+MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
+client = Anthropic(
+    base_url="https://api.minimaxi.com/anthropic",
+    api_key=MINIMAX_API_KEY
+)
 
 SYSTEM = f"""You are a coding agent at {WORKDIR}.
 Use the todo tool to plan multi-step tasks. Mark in_progress before starting, completed when done.
@@ -85,7 +92,7 @@ class TodoManager:
         lines.append(f"\n({done}/{len(self.items)} completed)")
         return "\n".join(lines)
 
-
+# TODO使用TodoManager类
 TODO = TodoManager()
 
 
@@ -137,7 +144,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-
+# todo 当做工具传给模型
 TOOL_HANDLERS = {
     "bash":       lambda **kw: run_bash(kw["command"]),
     "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
@@ -165,10 +172,20 @@ def agent_loop(messages: list):
     rounds_since_todo = 0
     while True:
         # Nag reminder is injected below, alongside tool results
+        '''
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
+        '''
+        response = client.messages.create(
+            model="MiniMax-M2.7", system=SYSTEM, 
+            max_tokens=10000,
+            messages=messages,
+            tools=TOOLS,
+        )
+        print(f"response: {response}");
+
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             return
@@ -184,6 +201,7 @@ def agent_loop(messages: list):
                 print(f"> {block.name}:")
                 print(str(output)[:200])
                 results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(output)})
+                # 如果返回中有使用todo
                 if block.name == "todo":
                     used_todo = True
         rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
