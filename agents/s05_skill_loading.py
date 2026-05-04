@@ -50,8 +50,17 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
+'''
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
+'''
+MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
+client = Anthropic(
+    base_url="https://api.minimaxi.com/anthropic",
+    api_key=MINIMAX_API_KEY
+)
+
+
 SKILLS_DIR = WORKDIR / "skills"
 
 
@@ -187,10 +196,19 @@ TOOLS = [
 
 def agent_loop(messages: list):
     while True:
+        '''
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
+        '''
+        response = client.messages.create(
+            model="MiniMax-M2.7", system=SYSTEM, 
+            max_tokens=10000,
+            messages=messages,
+            tools=TOOLS,
+        )
+
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             return

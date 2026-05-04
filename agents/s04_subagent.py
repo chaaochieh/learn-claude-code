@@ -24,8 +24,8 @@ Key insight: "Process isolation gives context isolation for free."
 """
 
 import os
-import subprocess
 from pathlib import Path
+import subprocess
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
@@ -36,9 +36,17 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
+'''
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
+'''
+MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
+client = Anthropic(
+    base_url="https://api.minimaxi.com/anthropic",
+    api_key=MINIMAX_API_KEY
+)
 
+# 系统提示词
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use the task tool to delegate exploration or subtasks."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
 
@@ -93,7 +101,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
-
+# TOOL_HANDLEERS 实际几个实际处理工具的函数
 TOOL_HANDLERS = {
     "bash":       lambda **kw: run_bash(kw["command"]),
     "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
@@ -101,6 +109,7 @@ TOOL_HANDLERS = {
     "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
 }
 
+# 子 agent 支持的工具， 和 TOOL_HANDLERS 对应，父 agent 加一个 task 工具，用来执行 subagent
 # Child gets all base tools except task (no recursive spawning)
 CHILD_TOOLS = [
     {"name": "bash", "description": "Run a shell command.",
@@ -116,12 +125,23 @@ CHILD_TOOLS = [
 
 # -- Subagent: fresh context, filtered tools, summary-only return --
 def run_subagent(prompt: str) -> str:
+    print(f"run_subagent: prompt={prompt}")
     sub_messages = [{"role": "user", "content": prompt}]  # fresh context
+    # subagent 最多跑30轮
     for _ in range(30):  # safety limit
+        '''
         response = client.messages.create(
             model=MODEL, system=SUBAGENT_SYSTEM, messages=sub_messages,
             tools=CHILD_TOOLS, max_tokens=8000,
         )
+        '''
+        response = client.messages.create(
+            model="MiniMax-M2.7", system=SUBAGENT_SYSTEM, 
+            max_tokens=10000,
+            messages=sub_messages,
+            tools=CHILD_TOOLS,
+        )
+
         sub_messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             break
@@ -145,16 +165,27 @@ PARENT_TOOLS = CHILD_TOOLS + [
 
 def agent_loop(messages: list):
     while True:
+        '''
         response = client.messages.create(
             model=MODEL, system=SYSTEM, messages=messages,
             tools=PARENT_TOOLS, max_tokens=8000,
         )
+        '''
+        response = client.messages.create(
+            model="MiniMax-M2.7", system=SYSTEM, 
+            max_tokens=10000,
+            messages=messages,
+            tools=PARENT_TOOLS,
+        )
+        print(f"agent_loop: msg={messages}")
         messages.append({"role": "assistant", "content": response.content})
+        print(f"agent_loop: resp={response}")
         if response.stop_reason != "tool_use":
             return
         results = []
         for block in response.content:
             if block.type == "tool_use":
+                # 返回 tool_use 中有 task 字段, 运行 subagent
                 if block.name == "task":
                     desc = block.input.get("description", "subtask")
                     prompt = block.input.get("prompt", "")
