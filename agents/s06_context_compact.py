@@ -49,8 +49,27 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
+'''
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
+'''
+
+# 太热了，风扇狂转
+'''
+client = Anthropic(
+    # base_url="https://api.minimaxi.com/anthropic",
+    base_url="http://localhost:11434",
+    api_key="ollama"
+)
+MODEL="qwen3-vl:8b";
+'''
+
+MODEL = "MiniMax-M2.7"
+MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
+client = Anthropic(
+    base_url="https://api.minimaxi.com/anthropic",
+    api_key=MINIMAX_API_KEY
+)
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks."
 
@@ -59,13 +78,15 @@ TRANSCRIPT_DIR = WORKDIR / ".transcripts"
 KEEP_RECENT = 3
 PRESERVE_RESULT_TOOLS = {"read_file"}
 
-
+# 计算 messages 占用 token 的数量
 def estimate_tokens(messages: list) -> int:
     """Rough token count: ~4 chars per token."""
+    # TODO: 整除？
     return len(str(messages)) // 4
 
 
 # -- Layer 1: micro_compact - replace old tool results with placeholders --
+# 每个和 LLM 请求都来计算下，tool_results 超过3个就压缩，使用占位字符代替
 def micro_compact(messages: list) -> list:
     # Collect (msg_index, part_index, tool_result_dict) for all tool_result entries
     tool_results = []
@@ -93,6 +114,7 @@ def micro_compact(messages: list) -> list:
             continue
         tool_id = result.get("tool_use_id", "")
         tool_name = tool_name_map.get(tool_id, "unknown")
+        # TODO: 啥意思？读文件的结果还是要放到上下文中给他, 其他用 used xxx tool 代替
         if tool_name in PRESERVE_RESULT_TOOLS:
             continue
         result["content"] = f"[Previous: used {tool_name}]"
@@ -100,15 +122,17 @@ def micro_compact(messages: list) -> list:
 
 
 # -- Layer 2: auto_compact - save transcript, summarize, replace messages --
+# 自动压缩，保存会话，在当前目录创建一个 .transcript 目录
 def auto_compact(messages: list) -> list:
     # Save full transcript to disk
     TRANSCRIPT_DIR.mkdir(exist_ok=True)
     transcript_path = TRANSCRIPT_DIR / f"transcript_{int(time.time())}.jsonl"
+    print(f"auto_compatc transcript path={transcript_path}")
     with open(transcript_path, "w") as f:
         for msg in messages:
             f.write(json.dumps(msg, default=str) + "\n")
     print(f"[transcript saved: {transcript_path}]")
-    # Ask LLM to summarize
+    # Ask LLM to summarize, 作为下一轮对象新的上下文
     conversation_text = json.dumps(messages, default=str)[-80000:]
     response = client.messages.create(
         model=MODEL,
@@ -181,6 +205,7 @@ TOOL_HANDLERS = {
     "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
     "write_file": lambda **kw: run_write(kw["path"], kw["content"]),
     "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+    # TODO:: 这里为什么没有 auto_compact 函数直接调用
     "compact":    lambda **kw: "Manual compression requested.",
 }
 
@@ -210,12 +235,15 @@ def agent_loop(messages: list):
             model=MODEL, system=SYSTEM, messages=messages,
             tools=TOOLS, max_tokens=8000,
         )
+        print(f"loop: >>> {messages}")
+        print(f"loop: <<< {response}")
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             return
         results = []
         manual_compact = False
         for block in response.content:
+            # 模型需要调用 campact 工具
             if block.type == "tool_use":
                 if block.name == "compact":
                     manual_compact = True

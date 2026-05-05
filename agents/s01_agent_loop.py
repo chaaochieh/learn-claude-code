@@ -52,8 +52,9 @@ client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 '''
 MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
 client = Anthropic(
-    base_url="https://api.minimaxi.com/anthropic",
-    api_key=MINIMAX_API_KEY
+    # base_url="https://api.minimaxi.com/anthropic",
+    base_url="http://localhost:11434",
+    api_key="ollama"
 )
 '''
 MODEL = os.environ["MODEL_ID"]
@@ -95,8 +96,9 @@ def agent_loop(messages: list):
         print(f"message: {messages}")
         # minimax 接口
         response = client.messages.create(
-            model="MiniMax-M2.7",
-            max_tokens=1000,
+            # model="MiniMax-M2.7",
+            model="qwen3-vl:8b",
+            max_tokens=10000,
             messages=messages,
         )
         print(f"response: {response}");
