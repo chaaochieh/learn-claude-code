@@ -58,8 +58,17 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
+'''
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
+'''
+MODEL = "MiniMax-M2.7"
+MINIMAX_API_KEY = os.environ["MINIMAX_API_KEY"]
+client = Anthropic(
+    base_url="https://api.minimaxi.com/anthropic",
+    api_key=MINIMAX_API_KEY
+)
+
 TEAM_DIR = WORKDIR / ".team"
 INBOX_DIR = TEAM_DIR / "inbox"
 
